@@ -1,0 +1,207 @@
+library(RSQLite)
+
+
+
+connection <- dbConnect(SQLite(), "newdb.db")
+
+
+dbGetQuery(connection, "CREATE TABLE ournames (firstname text, lastname text);")
+
+dbGetQuery(connection, "INSERT INTO ournames VALUES('Ryan', 'Farquharson');")
+
+
+dbGetQuery(connection, "INSERT INTO ournames VALUES('Jackie', 'Ouzzman');")
+
+result <- dbGetQuery(connection, "SELECT * FROM ournames;")
+
+print(result)
+
+
+dbDisconnect(connection)
+
+-------------
+
+
+CREATE TABLE sample (
+  id integer PRIMARY KEY,
+  name text,
+  species text,
+  description text
+);
+
+CREATE TABLE seqgroup (
+  id integer PRIMARY KEY,
+  name text,
+  description text
+);
+
+CREATE TABLE seqtype (
+  id integer PRIMARY KEY,
+  type text
+);
+
+CREATE TABLE sequence (
+  id integer PRIMARY KEY,
+  name text,
+  length integer,
+  belongsGroup integer,
+  isSample integer,
+  isType integer,
+  FOREIGN KEY (belongsGroup) REFERENCES seqgroup(id),
+  FOREIGN KEY (isSample) REFERENCES sample(id),
+  FOREIGN KEY (isType) REFERENCES seqtype(id)
+);
+
+CREATE TABLE seqrelation (
+  id integer PRIMARY KEY,
+  parentSeq integer,
+  childSeq integer,
+  strand boolean,
+  pStart integer,
+  pEnd integer,
+  cStart integer,
+  cEnd integer,
+  method text,
+  FOREIGN KEY (parentSeq) REFERENCES sequence(id),
+  FOREIGN KEY (childSeq) REFERENCES sequence(id)
+);
+
+
+CREATE TABLE alignedannot (
+  id integer PRIMARY KEY,
+  onSequence integer,
+  start integer,
+  end integer,
+  strand boolean,
+  name text,
+  annotation text,
+  species text,
+  source text,
+  method text,
+  score text,
+  FOREIGN KEY (onSequence) REFERENCES sequence(id)
+);
+
+
+----------
+
+.separator "\t"
+.import "|tail -n +2 samples1.txt" sample
+.import "|tail -n +2 seqgroups1.txt" seqgroup
+.import "|tail -n +2 seqtypes.txt" seqtype
+.import "|tail -n +2 sequences1-D18-genomic.txt" sequence
+.import "|tail -n +2 sequences2-D36-RNA.txt" sequence
+.import "|tail -n +2 sequences3-D18-augustusGenePredict.txt" sequence
+.import "|tail -n +2 alignedannot1-D18augPred-vs-NCBI-nr.txt" alignedannot
+.import "|tail -n +2 seqrelations1-D18augPred-vs-D18g.txt" seqrelation
+.import "|tail -n +2 seqrelations2-D36rna-vs-D18g.txt" seqrelation
+
+-----------
+
+.header on
+.mode column
+
+----------
+#1.	List all details about all samples:
+
+SELECT * FROM sample;
+
+#2.	Can you list just the name and species for all samples? 
+
+SELECT name, species FROM sample;
+
+#3.	Can you list details of the first 10 sequences?
+
+SELECT * FROM sample LIMIT = 10;
+
+#4.	How many loaded sequences are there?
+
+SELECT count(name) FROM sequence;
+
+#5.	How many sequences are of the type “genomeAssembly”?
+
+SELECT count(name) FROM sequence JOIN seqtype ON sequence.isType=seqtype.id GROUP BY seqtype.type;
+
+#6.	How many loaded sequences are there of each different type? 
+
+SELECT seqtype.type, count(name) FROM sequence JOIN seqtype ON sequence.isType=seqtype.id GROUP BY seqtype.type;
+
+#7.	How many sequences have a length greater than 1000?
+
+SELECT count(name) FROM sequence WHERE length>1000;
+
+#8.	How many sequences have a length greater than 1000 and are from sample “D36-s2-tr”?
+
+
+SELECT count(sequence.name) FROM sequence JOIN sample on sequence.issample=sample.id WHERE sample.name='D36-s2-tr' 
+AND sequence.length >1000;
+
+
+#9.	What is the average length of all sequences?
+
+SELECT avg(length) FROM sequence;
+
+#10.	What is the average length of sequences of type “genomeAssembly”?
+
+SELECT avg(length) FROM sequence JOIN seqtype ON sequence.isType=seqtype.id  WHERE seqtype.type='genomeAssembly';
+
+#11.	What is the average length of sequences of type “genomeAssembly” AND what is the average length of 
+sequences of type “protein”? 
+
+SELECT seqtype.type, avg(length) FROM sequence JOIN seqtype ON sequence.isType=seqtype.id GROUP BY seqtype.type;
+
+SELECT seqtype.type, avg(length) FROM sequence JOIN seqtype ON sequence.isType=seqtype.id WHERE seqtype.type != 'trAssembly' GROUP BY seqtype.type;
+
+#From Fran (better solution as it specifies which types you want):
+SELECT seqtype.type, avg(sequence.length) FROM sequence JOIN seqtype ON sequence.id=seqtype.id WHERE (seqtype.type 
+= 'genomeAssembly' OR seqtype.type = 'protein') GROUP BY seqtype.type;
+
+
+#12.	How many annotations (alignedannot.annotation) contain the phrase “hypothetical”?
+
+SELECT count(id) FROM alignedannot WHERE annotation LIKE '%hypothetical%';
+
+#13.	Can you list details of the sequence named “D18-gDNA-s1638”, replacing the foreign keys with sensible info (e.g. replace ‘isSample’ id with actual sample name)?  
+
+SELECT sequence.id, sequence.name, sequence.length, sample.species, seqtype.type FROM sequence JOIN sample JOIN seqtype WHERE sequence.name = 'D18-gDNA-s1638';
+
+
+#14.	Does the sequence named “D18-gDNA-s1638” have any other sequences that align onto it (it’ll appear in 
+seqRelation.parentSeq)?  List any such sequences. 
+
+SELECT s2.name FROM seqrelation JOIN sequence AS s1 JOIN sequence AS s2 ON s1.id=seqrelation.parentseq AND 
+s2.id=seqrelation.childseq WHERE s1.name = 'D18-gDNA-s1638';
+
+#From Andrew SPriggs:
+SELECT rel.id AS relationID,
+
+ pseq.id AS parentSeqID,
+
+ pseq.name AS parentSeqName,
+
+ cseq.id AS childSeqID,
+
+ cseq.name AS childSeqName
+
+FROM seqrelation AS rel
+
+JOIN sequence AS pseq ON pseq.id=rel.parentSeq
+
+JOIN sequence AS cseq ON cseq.id=rel.childSeq
+
+WHERE pseq.name='D18-gDNA-s1638';
+
+
+
+#For some reason this command does not print Distinct values:
+SELECT DISTINCT sequence.name from sequence JOIN seqrelation WHERE seqrelation.parentSeq='1205';
+
+# THis works but I've cheated and entered the sequence id manually
+SELECT DISTINCT seqrelation.id FROM seqrelation JOIN sequence AS ID where parentSeq = '1205';  
+
+#This logic seems correct but it does not return anything
+SELECT DISTINCT seqrelation.id FROM seqrelation JOIN sequence ON sequence.id = seqrelation.id WHERE seqrelation.parentSeq='sequence.id' AND name='D18-gDNA-s1638';
+
+
+#Try this after updating tables again
+SELECT DISTINCT s1.name FROM seqrelation JOIN sequence AS s1 JOIN sequence AS s2 ON s1.id=seqrelation.parentseq AND s2.id=seqrelation.childseq WHERE s1.name = 'D18-gDNA-s1638';
